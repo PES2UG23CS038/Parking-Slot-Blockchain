@@ -16,7 +16,7 @@ This project implements a decentralized parking slot allocation system using blo
 - Ethereum (Simulation)
 
 ## Smart Contract
-Located in `contracts/ParkingSystem.sol`
+Located in `ParkingSystem.sol`
 
 ## How to Run
 1. Open Remix IDE
