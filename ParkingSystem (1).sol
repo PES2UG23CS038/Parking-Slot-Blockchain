@@ -27,35 +27,32 @@ contract ParkingSystem {
     mapping(uint => Slot) public slots;
     uint public totalSlots;
 
-    // Audit Trail
     Reservation[] public reservationHistory;
-
-    // User tracking
     mapping(address => uint) public userReservationsCount;
 
     event SlotAdded(uint slotId);
     event SlotReserved(uint slotId, address user, uint startTime, uint endTime);
     event SlotReleased(uint slotId, address user);
 
-    modifier onlyOwner() {
-        require(msg.sender == owner, "Not owner");
-        _;
-    }
-
     modifier validSlot(uint _slotId) {
         require(_slotId > 0 && _slotId <= totalSlots, "Invalid slot ID");
         _;
     }
 
-    // Add slot
+    modifier onlyOwner() {
+        require(msg.sender == owner, "Not owner");
+        _;
+    }
+
     function addSlot() public onlyOwner {
         totalSlots++;
         slots[totalSlots] = Slot(totalSlots, false, address(0), 0, 0);
         emit SlotAdded(totalSlots);
     }
 
-    // Auto-expiry check
-    function _autoRelease(uint _slotId) internal {
+    function reserveSlot(uint _slotId, uint _durationInMinutes) 
+        public validSlot(_slotId) 
+    {
         Slot storage s = slots[_slotId];
 
         if (s.isOccupied && block.timestamp > s.endTime) {
@@ -64,15 +61,6 @@ contract ParkingSystem {
             s.startTime = 0;
             s.endTime = 0;
         }
-    }
-
-    // Reserve slot
-    function reserveSlot(uint _slotId, uint _durationInMinutes)
-        public validSlot(_slotId)
-    {
-        Slot storage s = slots[_slotId];
-
-        _autoRelease(_slotId);
 
         require(!s.isOccupied, "Slot already occupied");
 
@@ -81,7 +69,6 @@ contract ParkingSystem {
         s.startTime = block.timestamp;
         s.endTime = block.timestamp + (_durationInMinutes * 1 minutes);
 
-        // Save history
         reservationHistory.push(Reservation(
             _slotId,
             msg.sender,
@@ -94,7 +81,6 @@ contract ParkingSystem {
         emit SlotReserved(_slotId, msg.sender, s.startTime, s.endTime);
     }
 
-    // Release slot
     function releaseSlot(uint _slotId) public validSlot(_slotId) {
         Slot storage s = slots[_slotId];
 
@@ -108,33 +94,41 @@ contract ParkingSystem {
         emit SlotReleased(_slotId, msg.sender);
     }
 
-    // Get slot details
-    function getSlot(uint _slotId)
-        public view validSlot(_slotId)
-        returns (uint, bool, address, uint, uint)
+    function getSlot(uint _slotId) 
+        public view validSlot(_slotId) 
+        returns (uint, bool, address, uint, uint) 
     {
         Slot memory s = slots[_slotId];
+
+        if (s.isOccupied && block.timestamp > s.endTime) {
+            return (s.id, false, address(0), 0, 0);
+        }
+
         return (s.id, s.isOccupied, s.currentUser, s.startTime, s.endTime);
     }
 
-    // Get all slots
     function getAllSlots() public view returns (Slot[] memory) {
         Slot[] memory all = new Slot[](totalSlots);
 
         for (uint i = 1; i <= totalSlots; i++) {
-            all[i - 1] = slots[i];
+            Slot memory s = slots[i];
+
+            if (s.isOccupied && block.timestamp > s.endTime) {
+                all[i - 1] = Slot(s.id, false, address(0), 0, 0);
+            } else {
+                all[i - 1] = s;
+            }
         }
 
         return all;
     }
 
-    // Get available slots
     function getAvailableSlots() public view returns (uint[] memory) {
         uint count = 0;
 
         for (uint i = 1; i <= totalSlots; i++) {
             if (
-                !slots[i].isOccupied ||
+                !slots[i].isOccupied || 
                 (slots[i].isOccupied && block.timestamp > slots[i].endTime)
             ) {
                 count++;
@@ -146,7 +140,7 @@ contract ParkingSystem {
 
         for (uint i = 1; i <= totalSlots; i++) {
             if (
-                !slots[i].isOccupied ||
+                !slots[i].isOccupied || 
                 (slots[i].isOccupied && block.timestamp > slots[i].endTime)
             ) {
                 available[index] = i;
@@ -157,8 +151,11 @@ contract ParkingSystem {
         return available;
     }
 
-    // Get total reservation history count
     function getReservationHistoryCount() public view returns (uint) {
         return reservationHistory.length;
+    }
+
+    function getAllReservations() public view returns (Reservation[] memory) {
+        return reservationHistory;
     }
 }
