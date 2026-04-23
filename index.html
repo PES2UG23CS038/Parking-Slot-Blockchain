@@ -1,0 +1,645 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Parking</title>
+    <script src="https://cdn.jsdelivr.net/npm/web3@1.8.2/dist/web3.min.js"></script>
+    <style>
+        body { font-family: Arial; padding: 20px; background: #f5f7fa; }
+        button { margin: 5px; padding: 10px; cursor: pointer; }
+        input { padding: 8px; margin: 5px; }
+        section { margin-bottom: 20px; padding: 10px; background: white; border-radius: 8px; }
+        #status { font-weight: bold; color: green; }
+        pre { background: #eee; padding: 10px; white-space: pre-wrap; }
+    </style>
+</head>
+
+<body>
+
+<h2>Parking Slot System</h2>
+
+<section>
+    <button onclick="connect()">Connect Wallet</button>
+    <p id="account"></p>
+    <p id="role"></p>
+    <p id="status"></p>
+</section>
+
+<!-- ADMIN ONLY -->
+<section id="addSlotSection">
+    <h3>Add Slot (Admin Only)</h3>
+    <button onclick="addSlot()">Add Slot</button>
+</section>
+
+<section>
+    <h3>Reserve Slot</h3>
+    <input type="number" id="slotId" placeholder="Slot ID">
+    <input type="number" id="duration" placeholder="Minutes">
+    <button onclick="reserve()">Reserve</button>
+</section>
+
+<section>
+    <h3>Release Slot</h3>
+    <input type="number" id="releaseId" placeholder="Slot ID">
+    <button onclick="releaseSlot()">Release</button>
+</section>
+
+<section>
+    <h3>Available Slots</h3>
+    <button onclick="getAvailable()">Show Available</button>
+    <p id="slots"></p>
+</section>
+
+<section>
+    <h3>Check Slot Details</h3>
+    <input type="number" id="checkSlotId" placeholder="Slot ID">
+    <button onclick="getSlotDetails()">Check</button>
+    <pre id="slotDetails"></pre>
+</section>
+
+<section>
+    <h3>All Slots</h3>
+    <button onclick="getAll()">Show All</button>
+    <pre id="allSlots"></pre>
+</section>
+
+<section>
+    <h3>Reservation History (By Index)</h3>
+    <input type="number" id="historyIndex" placeholder="Index">
+    <button onclick="getHistory()">Get History</button>
+    <pre id="history"></pre>
+</section>
+
+<section>
+    <h3>Full Reservation History</h3>
+    <button onclick="getAllHistory()">Show Full History</button>
+    <pre id="allHistory"></pre>
+</section>
+
+<section>
+    <h3>My Reservation Count</h3>
+    <button onclick="getUserCount()">Check Count</button>
+    <p id="userCount"></p>
+</section>
+
+<script>
+let web3;
+let contract;
+let account;
+
+const contractAddress = "0xf1C258136b79A22b3d421a93706e2Fb193920A88";
+
+// ABI
+const abi = [ 
+	{
+		"inputs": [],
+		"stateMutability": "nonpayable",
+		"type": "constructor"
+	},
+	{
+		"anonymous": false,
+		"inputs": [
+			{
+				"indexed": false,
+				"internalType": "uint256",
+				"name": "slotId",
+				"type": "uint256"
+			}
+		],
+		"name": "SlotAdded",
+		"type": "event"
+	},
+	{
+		"anonymous": false,
+		"inputs": [
+			{
+				"indexed": false,
+				"internalType": "uint256",
+				"name": "slotId",
+				"type": "uint256"
+			},
+			{
+				"indexed": false,
+				"internalType": "address",
+				"name": "user",
+				"type": "address"
+			}
+		],
+		"name": "SlotReleased",
+		"type": "event"
+	},
+	{
+		"anonymous": false,
+		"inputs": [
+			{
+				"indexed": false,
+				"internalType": "uint256",
+				"name": "slotId",
+				"type": "uint256"
+			},
+			{
+				"indexed": false,
+				"internalType": "address",
+				"name": "user",
+				"type": "address"
+			},
+			{
+				"indexed": false,
+				"internalType": "uint256",
+				"name": "startTime",
+				"type": "uint256"
+			},
+			{
+				"indexed": false,
+				"internalType": "uint256",
+				"name": "endTime",
+				"type": "uint256"
+			}
+		],
+		"name": "SlotReserved",
+		"type": "event"
+	},
+	{
+		"inputs": [],
+		"name": "addSlot",
+		"outputs": [],
+		"stateMutability": "nonpayable",
+		"type": "function"
+	},
+	{
+		"inputs": [],
+		"name": "getAllReservations",
+		"outputs": [
+			{
+				"components": [
+					{
+						"internalType": "uint256",
+						"name": "slotId",
+						"type": "uint256"
+					},
+					{
+						"internalType": "address",
+						"name": "user",
+						"type": "address"
+					},
+					{
+						"internalType": "uint256",
+						"name": "startTime",
+						"type": "uint256"
+					},
+					{
+						"internalType": "uint256",
+						"name": "endTime",
+						"type": "uint256"
+					}
+				],
+				"internalType": "struct ParkingSystem.Reservation[]",
+				"name": "",
+				"type": "tuple[]"
+			}
+		],
+		"stateMutability": "view",
+		"type": "function"
+	},
+	{
+		"inputs": [],
+		"name": "getAllSlots",
+		"outputs": [
+			{
+				"components": [
+					{
+						"internalType": "uint256",
+						"name": "id",
+						"type": "uint256"
+					},
+					{
+						"internalType": "bool",
+						"name": "isOccupied",
+						"type": "bool"
+					},
+					{
+						"internalType": "address",
+						"name": "currentUser",
+						"type": "address"
+					},
+					{
+						"internalType": "uint256",
+						"name": "startTime",
+						"type": "uint256"
+					},
+					{
+						"internalType": "uint256",
+						"name": "endTime",
+						"type": "uint256"
+					}
+				],
+				"internalType": "struct ParkingSystem.Slot[]",
+				"name": "",
+				"type": "tuple[]"
+			}
+		],
+		"stateMutability": "view",
+		"type": "function"
+	},
+	{
+		"inputs": [],
+		"name": "getAvailableSlots",
+		"outputs": [
+			{
+				"internalType": "uint256[]",
+				"name": "",
+				"type": "uint256[]"
+			}
+		],
+		"stateMutability": "view",
+		"type": "function"
+	},
+	{
+		"inputs": [],
+		"name": "getReservationHistoryCount",
+		"outputs": [
+			{
+				"internalType": "uint256",
+				"name": "",
+				"type": "uint256"
+			}
+		],
+		"stateMutability": "view",
+		"type": "function"
+	},
+	{
+		"inputs": [
+			{
+				"internalType": "uint256",
+				"name": "_slotId",
+				"type": "uint256"
+			}
+		],
+		"name": "getSlot",
+		"outputs": [
+			{
+				"internalType": "uint256",
+				"name": "",
+				"type": "uint256"
+			},
+			{
+				"internalType": "bool",
+				"name": "",
+				"type": "bool"
+			},
+			{
+				"internalType": "address",
+				"name": "",
+				"type": "address"
+			},
+			{
+				"internalType": "uint256",
+				"name": "",
+				"type": "uint256"
+			},
+			{
+				"internalType": "uint256",
+				"name": "",
+				"type": "uint256"
+			}
+		],
+		"stateMutability": "view",
+		"type": "function"
+	},
+	{
+		"inputs": [],
+		"name": "owner",
+		"outputs": [
+			{
+				"internalType": "address",
+				"name": "",
+				"type": "address"
+			}
+		],
+		"stateMutability": "view",
+		"type": "function"
+	},
+	{
+		"inputs": [
+			{
+				"internalType": "uint256",
+				"name": "_slotId",
+				"type": "uint256"
+			}
+		],
+		"name": "releaseSlot",
+		"outputs": [],
+		"stateMutability": "nonpayable",
+		"type": "function"
+	},
+	{
+		"inputs": [
+			{
+				"internalType": "uint256",
+				"name": "",
+				"type": "uint256"
+			}
+		],
+		"name": "reservationHistory",
+		"outputs": [
+			{
+				"internalType": "uint256",
+				"name": "slotId",
+				"type": "uint256"
+			},
+			{
+				"internalType": "address",
+				"name": "user",
+				"type": "address"
+			},
+			{
+				"internalType": "uint256",
+				"name": "startTime",
+				"type": "uint256"
+			},
+			{
+				"internalType": "uint256",
+				"name": "endTime",
+				"type": "uint256"
+			}
+		],
+		"stateMutability": "view",
+		"type": "function"
+	},
+	{
+		"inputs": [
+			{
+				"internalType": "uint256",
+				"name": "_slotId",
+				"type": "uint256"
+			},
+			{
+				"internalType": "uint256",
+				"name": "_durationInMinutes",
+				"type": "uint256"
+			}
+		],
+		"name": "reserveSlot",
+		"outputs": [],
+		"stateMutability": "nonpayable",
+		"type": "function"
+	},
+	{
+		"inputs": [
+			{
+				"internalType": "uint256",
+				"name": "",
+				"type": "uint256"
+			}
+		],
+		"name": "slots",
+		"outputs": [
+			{
+				"internalType": "uint256",
+				"name": "id",
+				"type": "uint256"
+			},
+			{
+				"internalType": "bool",
+				"name": "isOccupied",
+				"type": "bool"
+			},
+			{
+				"internalType": "address",
+				"name": "currentUser",
+				"type": "address"
+			},
+			{
+				"internalType": "uint256",
+				"name": "startTime",
+				"type": "uint256"
+			},
+			{
+				"internalType": "uint256",
+				"name": "endTime",
+				"type": "uint256"
+			}
+		],
+		"stateMutability": "view",
+		"type": "function"
+	},
+	{
+		"inputs": [],
+		"name": "totalSlots",
+		"outputs": [
+			{
+				"internalType": "uint256",
+				"name": "",
+				"type": "uint256"
+			}
+		],
+		"stateMutability": "view",
+		"type": "function"
+	},
+	{
+		"inputs": [
+			{
+				"internalType": "address",
+				"name": "",
+				"type": "address"
+			}
+		],
+		"name": "userReservationsCount",
+		"outputs": [
+			{
+				"internalType": "uint256",
+				"name": "",
+				"type": "uint256"
+			}
+		],
+		"stateMutability": "view",
+		"type": "function"
+	}
+ ];
+
+// CONNECT
+async function connect() {
+    try {
+        if (!window.ethereum) {
+            alert("Install MetaMask");
+            return;
+        }
+
+        web3 = new Web3(window.ethereum);
+
+        const chainId = await web3.eth.getChainId();
+        if (chainId !== 11155111) {
+            alert("Switch to Sepolia network");
+            return;
+        }
+
+        await window.ethereum.request({ method: 'eth_requestAccounts' });
+
+        const accounts = await web3.eth.getAccounts();
+        account = accounts[0];
+
+        document.getElementById("account").innerText = "Connected: " + account;
+
+        contract = new web3.eth.Contract(abi, contractAddress);
+
+        const owner = await contract.methods.owner().call();
+
+        if (account.toLowerCase() === owner.toLowerCase()) {
+            document.getElementById("role").innerText = "Role: ADMIN ";
+            document.getElementById("addSlotSection").style.display = "block";
+        } else {
+            document.getElementById("role").innerText = "Role: USER";
+            document.getElementById("addSlotSection").style.display = "none";
+        }
+
+        document.getElementById("status").innerText = "Connected ";
+
+    } catch (err) {
+        alert(err.message);
+    }
+}
+
+// ADD SLOT
+async function addSlot() {
+    try {
+        document.getElementById("status").innerText = "Processing...";
+        await contract.methods.addSlot().send({ from: account });
+        document.getElementById("status").innerText = "Slot Added ✅";
+    } catch (err) {
+        alert(err.message);
+    }
+}
+
+// RESERVE
+async function reserve() {
+    try {
+        let id = document.getElementById("slotId").value;
+        let duration = document.getElementById("duration").value;
+
+        if (!id || !duration) {
+            alert("Enter values");
+            return;
+        }
+
+        let slot = await contract.methods.getSlot(id).call();
+        if (slot[1]) {
+            alert("Slot already occupied ❌");
+            return;
+        }
+
+        document.getElementById("status").innerText = "Processing...";
+        await contract.methods.reserveSlot(id, duration).send({ from: account });
+
+        document.getElementById("status").innerText = "Reserved ✅";
+
+    } catch (err) {
+        alert("Transaction failed ❌");
+    }
+}
+
+// RELEASE
+async function releaseSlot() {
+    try {
+        let id = document.getElementById("releaseId").value;
+
+        let slot = await contract.methods.getSlot(id).call();
+        if (slot[2].toLowerCase() !== account.toLowerCase()) {
+            alert("Not your slot ❌");
+            return;
+        }
+
+        document.getElementById("status").innerText = "Processing...";
+        await contract.methods.releaseSlot(id).send({ from: account });
+
+        document.getElementById("status").innerText = "Released ✅";
+
+    } catch (err) {
+        alert("Transaction failed ❌");
+    }
+}
+
+// AVAILABLE
+async function getAvailable() {
+    let slots = await contract.methods.getAvailableSlots().call();
+    document.getElementById("slots").innerText =
+        "Available: " + (slots.length ? slots.join(", ") : "None");
+}
+
+// FORMAT TIME
+function formatTime(ts) {
+    return new Date(ts * 1000).toLocaleString();
+}
+
+// SLOT DETAILS
+async function getSlotDetails() {
+    let id = document.getElementById("checkSlotId").value;
+    let s = await contract.methods.getSlot(id).call();
+
+    document.getElementById("slotDetails").innerText =
+        `Slot: ${s[0]}
+Occupied: ${s[1]}
+User: ${s[2]}
+Start: ${formatTime(s[3])}
+End: ${formatTime(s[4])}`;
+}
+
+// ALL SLOTS
+async function getAll() {
+    let slots = await contract.methods.getAllSlots().call();
+
+    let out = "";
+    slots.forEach(s => {
+        out += `Slot ${s.id} | Occupied: ${s.isOccupied} | User: ${s.currentUser}\n`;
+    });
+
+    document.getElementById("allSlots").innerText = out;
+}
+
+// HISTORY BY INDEX
+async function getHistory() {
+    let i = document.getElementById("historyIndex").value;
+    let h = await contract.methods.reservationHistory(i).call();
+
+    document.getElementById("history").innerText =
+        `Slot: ${h.slotId}
+User: ${h.user}
+Start: ${formatTime(h.startTime)}
+End: ${formatTime(h.endTime)}`;
+}
+
+// FULL HISTORY
+async function getAllHistory() {
+    try {
+        const history = await contract.methods.getAllReservations().call();
+
+        if (history.length === 0) {
+            document.getElementById("allHistory").innerText = "No reservations yet";
+            return;
+        }
+
+        let output = "";
+
+        history.forEach((h, index) => {
+            output += `#${index + 1}
+Slot: ${h.slotId}
+User: ${h.user}
+Start: ${formatTime(h.startTime)}
+End: ${formatTime(h.endTime)}
+--------------------------\n`;
+        });
+
+        document.getElementById("allHistory").innerText = output;
+
+    } catch (err) {
+        alert("Error fetching history");
+    }
+}
+
+// USER COUNT
+async function getUserCount() {
+    let c = await contract.methods.userReservationsCount(account).call();
+    document.getElementById("userCount").innerText = "Reservations: " + c;
+}
+</script>
+
+</body>
+</html>
